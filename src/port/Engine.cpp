@@ -139,8 +139,16 @@ GameEngine::GameEngine() {
             { BTN_A, { SDL_CONTROLLER_BUTTON_A } },
             { BTN_B, { SDL_CONTROLLER_BUTTON_X } },
             { BTN_START, { SDL_CONTROLLER_BUTTON_START } },
+#ifdef __SWITCH__
+            // SDL buttons are positional: SDL Y is the Switch X button, SDL B
+            // is the Switch A button. X looks first person (C-up), A answers
+            // calls (C-right). Boost and brake stay on ZL and ZR.
+            { BTN_CUP, { SDL_CONTROLLER_BUTTON_Y } },
+            { BTN_CRIGHT, { SDL_CONTROLLER_BUTTON_B } },
+#else
             { BTN_CLEFT, { SDL_CONTROLLER_BUTTON_Y } },
             { BTN_CDOWN, { SDL_CONTROLLER_BUTTON_B } },
+#endif
             { BTN_DUP, { SDL_CONTROLLER_BUTTON_DPAD_UP } },
             { BTN_DDOWN, { SDL_CONTROLLER_BUTTON_DPAD_DOWN } },
             { BTN_DLEFT, { SDL_CONTROLLER_BUTTON_DPAD_LEFT } },
@@ -312,7 +320,11 @@ void GameEngine::Destroy() {
     }
     MemoryPool.clear();
 #ifdef __SWITCH__
-    Ship::Switch::Exit();
+    // Release the GUI and the context (window, GL, SDL, audio) now, after the
+    // audio thread has stopped. Without this the GL window is still open when
+    // the app returns to the homebrew menu.
+    GameUI::Destroy();
+    Instance->context = nullptr;
 #endif
 }
 

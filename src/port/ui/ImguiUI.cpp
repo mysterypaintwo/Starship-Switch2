@@ -573,7 +573,11 @@ void DrawGameMenu() {
         }
 #endif
 
+#ifdef __SWITCH__
+        if (UIWidgets::MenuItem("Quit to Homebrew Menu")) {
+#else
         if (UIWidgets::MenuItem("Quit")) {
+#endif
             Ship::Context::GetInstance()->GetWindow()->Close();
         }
         ImGui::EndMenu();
@@ -791,7 +795,7 @@ void DrawDebugMenu() {
             Ship::Context::GetInstance()->GetLogger()->set_level((spdlog::level::level_enum)CVarGetInteger("gDeveloperTools.LogLevel", 1));
         }
 
-#ifdef __SWITCH__
+#if defined(__SWITCH__) && !defined(__SWITCH2__)
         if (UIWidgets::CVarCombobox("Switch CPU Profile", "gSwitchPerfMode", SWITCH_CPU_PROFILES, {
             .tooltip = "Switches the CPU profile to a different one",
             .defaultIndex = (int)Ship::SwitchProfiles::STOCK

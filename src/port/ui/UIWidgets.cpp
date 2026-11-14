@@ -1,5 +1,7 @@
 #define NOMINMAX  // prevent defining min/max macros on windows
 #include "UIWidgets.h"
+#include <unordered_map>
+#include <cfloat>
 
 #include "libultraship/src/Context.h"
 
@@ -609,10 +611,23 @@ namespace UIWidgets {
     }
 
     bool BeginMenu(const char* label, const ImVec4& color) {
+        // A menu popup fits its contents, and sliders and combos size
+        // themselves from the popup's width, so an open menu grew a little
+        // every frame. Keep the width the menu has once it has opened.
+        static std::unordered_map<ImGuiID, float> sMenuWidths;
+        const ImGuiID id = ImGui::GetID(label);
+        auto width = sMenuWidths.find(id);
+        if (width != sMenuWidths.end()) {
+            ImGui::SetNextWindowSizeConstraints(ImVec2(width->second, 0.0f), ImVec2(width->second, FLT_MAX));
+        }
+
         bool dirty = false;
         PushStyleMenu(color);
         if (ImGui::BeginMenu(label)) {
             dirty = true;
+            if (width == sMenuWidths.end() && !ImGui::IsWindowAppearing()) {
+                sMenuWidths[id] = ImGui::GetWindowWidth();
+            }
         }
         PopStyleMenu();
         return dirty;

@@ -25,6 +25,21 @@ Supported ROMs (SHA-1 of the `.z64` file):
 - US 1.0: `d8b1088520f7c5f81433292a9258c1184afa1457`
 - US 1.1: `09f0d105f476b00efa5303a3ebc42e60a7753b7a`
 
+## Playing
+
+- Press `-` to open the menu.
+- Default buttons: B fires, Y drops a bomb, ZL boosts, ZR brakes, L and R
+  roll, X looks first person (C-up), and A answers calls (C-right). The
+  right stick is the C buttons. If you played an earlier build, your saved
+  controls stay: reset them in the controller settings to get these.
+- Quit: use "Starship > Quit to Homebrew Menu" in the menu to go back to the homebrew menu.
+  Closing the game from the HOME menu also works.
+- 120 FPS: on the Switch 2 screen, set the FPS slider in the graphics
+  settings above 60. With vsync on, the game is held to the display's refresh
+  rate (120 Hz handheld, 60 Hz on most TVs).
+- Bug reports: the log is in `/switch/starship/logs/`. Send it with the report,
+  especially after a crash.
+
 ## Build from source
 
 You need devkitPro with `switch-dev` and `switch-portlibs`, and ounce-devkit
