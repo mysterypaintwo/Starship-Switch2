@@ -388,8 +388,16 @@ target_link_libraries(${PROJECT_NAME} PRIVATE torch "${ADDITIONAL_LIBRARY_DEPEND
 
 if(CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch")
 
+# The homebrew menu sorts by title. On Switch 2 the HarbourMasters ports start
+# with "HarbourMasters - " so they are listed next to each other.
+if (NINTENDO_SWITCH2)
+    set(NACP_TITLE "HarbourMasters - Starship")
+else()
+    set(NACP_TITLE "${PROJECT_NAME}")
+endif()
+
 nx_generate_nacp(${PROJECT_NAME}.nacp
-   NAME "${PROJECT_NAME}"
+   NAME "${NACP_TITLE}"
    AUTHOR "${PROJECT_TEAM}"
    VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
 )
