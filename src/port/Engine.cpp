@@ -91,7 +91,12 @@ GameEngine::GameEngine() {
             }
 
             if (ShowYesNoBox("Extraction Complete", "ROM Extracted. Extract another?\n\n Starship supports JP and EU ROMs for voice replacement.\n Voice replacement ROM assets can also be installed in:\n Settings->Language->Install JP/EU Audio") == IDYES) {
+#ifdef __SWITCH__
+                // Without a JP or EU ROM, carry on with the US game.
+                if(!GenAssetFile(false)){
+#else
                 if(!GenAssetFile()){
+#endif
                     ShowMessage("Error", "An error occured, no O2R file was generated.");
                 }
             }
@@ -277,7 +282,17 @@ bool GameEngine::GenAssetFile(bool exitOnFail) {
     auto extractor = new GameExtractor();
 
     if (!extractor->SelectGameFromUI()) {
+#ifdef __SWITCH__
+        if (!fs::exists(Ship::Context::GetPathRelativeToAppDirectory("sf64.o2r"))) {
+            ShowMessage("Error", "No supported US ROM found.\n\nCopy your Star Fox 64 (US) ROM (.z64, .n64 or .v64)\n"
+                                 "to /switch/starship/ and start Starship again.\n\nExiting...");
+        } else {
+            ShowMessage("Error", "No JP or EU ROM found.\n\nCopy your Star Fox 64 JP or EU ROM (.z64, .n64 or .v64)\n"
+                                 "to /switch/starship/, then choose Install JP/EU Audio again.");
+        }
+#else
         ShowMessage("Error", "No ROM selected.\n\nExiting...");
+#endif
         if (exitOnFail) {
             exit(1);
         } else {

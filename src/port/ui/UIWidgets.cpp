@@ -9,6 +9,8 @@
 #include <imgui_internal.h>
 #include <libultraship/libultraship.h>
 #include <libultraship/libultra/types.h>
+// Last include: on Switch 2 it scales the sizes pushed with ImGui::PushStyleVar.
+#include "Switch2UiScale.h"
 
 namespace UIWidgets {
 

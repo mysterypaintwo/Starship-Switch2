@@ -9,12 +9,15 @@ homebrew SDK (libounce and OunceVK). It is listed in the homebrew menu as
 1. Copy the `switch/starship/` folder from the archive to the root of the SD
    card. It has `Starship.nro`, `starship.o2r` (the port's own assets),
    `config.yml` and `assets/` (used to read the ROM).
-2. Give Starship the game assets in one of two ways:
-   - Make `sf64.o2r` on a computer with a desktop build of Starship, and copy
-     it to `/switch/starship/`.
-   - Or copy your own ROM to `/switch/starship/baserom.us.rev1.z64`
-     (big-endian `.z64` format). Starship makes `sf64.o2r` from it on the first
+2. Give Starship the game assets (`GAME-DATA.md`, next to this file, explains
+   it step by step):
+   - Copy your own US ROM (`.z64`, `.n64` or `.v64`, any name) to
+     `/switch/starship/`. Starship makes `sf64.o2r` from it on the first
      start. This takes a few minutes.
+   - Or make `sf64.o2r` on a computer with the PC version of Starship, and
+     copy it to `/switch/starship/`.
+   - Optional: a JP or EU ROM in the same folder adds Japanese or European
+     voices (Settings > Language > Install JP/EU Audio).
 3. Start "HarbourMasters - Starship" from the homebrew menu.
 
 The archive never has `sf64.o2r` or a ROM: they are made from a ROM, and you
@@ -38,12 +41,13 @@ Supported ROMs (SHA-1 of the `.z64` file):
   settings above 60. With vsync on, the game is held to the display's refresh
   rate (120 Hz handheld, 60 Hz on most TVs).
 - Bug reports: the log is in `/switch/starship/logs/`. Send it with the report,
-  especially after a crash.
+  especially after a crash: the folder then also has a `crash-<date>.txt`
+  file that says where the game crashed.
 
 ## Build from source
 
 You need devkitPro with `switch-dev` and `switch-portlibs`, and ounce-devkit
-20261114 or newer unpacked into `$DEVKITPRO` (it adds `libounce` and
+20261117 or newer installed in `$DEVKITPRO` (`sh install.sh` from ounce-devkit) (it adds `libounce` and
 `portlibs/switch2`). Older SDKs are refused: their NROs are not marked as
 Switch 2 programs, and the console warns about them.
 
