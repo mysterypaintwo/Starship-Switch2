@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FONT = ROOT.parent / "2ship2harkinian-Switch2/mm/assets/custom/fonts/Montserrat-Regular.ttf"
 OUT = ROOT / "libultraship/src/port/switch/SwitchLoadingFont.h"
 TITLE = "Starship"
-CHARS = sorted(set("Loading game data Loading audio Preparing shaders Preparing graphics 0123456789%."))
+CHARS = sorted(set("Loading game data Loading audio Preparing shaders Preparing graphics Making game data. Do not close the game Could not make game data. Press A to exit 0123456789%."))
 ATLAS_W, PAD = 1024, 3
 
 title_font = ImageFont.truetype(str(FONT), 72)

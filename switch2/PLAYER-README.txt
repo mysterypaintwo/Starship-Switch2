@@ -21,7 +21,8 @@ INSTALL
    Already have sf64.o2r? Keep it instead. GAME-DATA.md has the details.
 
 3. Start "HarbourMasters - Starship" from the homebrew menu. On first launch,
-   answer Yes to make the game data. This takes a few minutes.
+   the loading screen shows it making the game data. This can take a minute
+   or more. Do not close the game.
 
 
 VOICES (OPTIONAL)

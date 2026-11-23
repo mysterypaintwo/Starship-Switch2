@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include "port/notification/notification.h"
@@ -148,25 +149,20 @@ GameEngine::GameEngine() {
     this->context = Ship::Context::CreateUninitializedInstance("Starship", "ship", "starship.cfg.json");
 
 #ifdef __SWITCH__
-    {
-        // sf64.o2r can be made on the console from a ROM in this folder.
-        bool hasRom = false;
-        std::error_code romError;
-        for (const auto& entry : std::filesystem::directory_iterator(".", romError)) {
-            std::string ext = entry.path().extension().string();
-            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
-            hasRom = hasRom || ext == ".z64" || ext == ".n64" || ext == ".v64";
-        }
-        Ship::Switch::RequireGameFiles("Starship", "/switch/starship/", { "starship.o2r" },
-                                       hasRom ? std::vector<std::string>{} : std::vector<std::string>{ "sf64.o2r" },
-                                       "Copy sf64.o2r or your US Star Fox 64 ROM there.\n"
-                                       "See GAME-DATA.md in the download.");
-    }
+    // sf64.o2r can be made on the console, so it is checked below by hashing the ROMs.
+    Ship::Switch::RequireGameFiles("Starship", "/switch/starship/", { "starship.o2r" }, {},
+                                   "See GAME-DATA.md in the download.");
     Ship::Switch::Init(Ship::PreInitPhase);
     Ship::Switch::Init(Ship::PostInitPhase);
     // Needs the sockets that PreInitPhase opens.
     Switch2Debug_Start();
     Switch2Debug_BootMark("start");
+    if (!std::filesystem::exists(Ship::Context::GetPathRelativeToAppDirectory("sf64.o2r"))) {
+        std::string romReport;
+        if (!GameExtractor::ScanForUsRom(romReport)) {
+            Ship::Switch::ShowSetupErrorAndExit("Starship is not set up yet", romReport);
+        }
+    }
 #endif
 
     std::vector<std::string> archiveFiles;
@@ -186,16 +182,16 @@ GameEngine::GameEngine() {
     }
 #endif
 
+#ifdef __SWITCH__
+    // Made once the window is open, so the loading screen can show it.
+    const bool makeGameData = !std::filesystem::exists(main_path);
+#endif
     if (std::filesystem::exists(main_path)) {
         archiveFiles.push_back(main_path);
     } else {
+#ifndef __SWITCH__
         if (ShowYesNoBox("Starship - Asset Extraction", "Please provide a Starfox 64 ROM.\n\nSupported Versions:\nUS 1.0\nUS 1.1\n\nAssets will be extracted into an O2R file.") == IDYES) {
             if(!GenAssetFile()){
-#ifdef __SWITCH__
-                Ship::Switch::ShowSetupErrorAndExit("Starship could not make its game data",
-                                                    "Extracting your ROM failed, so sf64.o2r was not created.\n"
-                                                    "See GAME-DATA.md in the download.");
-#endif
                 ShowMessage("Error", "An error occured, no O2R file was generated.\n\nExiting...");
                 exit(1);
             } else {
@@ -203,18 +199,14 @@ GameEngine::GameEngine() {
             }
 
             if (ShowYesNoBox("Extraction Complete", "ROM Extracted. Extract another?\n\n Starship supports JP and EU ROMs for voice replacement.\n Voice replacement ROM assets can also be installed in:\n Settings->Language->Install JP/EU Audio") == IDYES) {
-#ifdef __SWITCH__
-                // Without a JP or EU ROM, carry on with the US game.
-                if(!GenAssetFile(false)){
-#else
                 if(!GenAssetFile()){
-#endif
                     ShowMessage("Error", "An error occured, no O2R file was generated.");
                 }
             }
         } else {
             exit(1);
         }
+#endif
     }
 
     if (std::filesystem::exists(assets_path)) {
@@ -309,6 +301,19 @@ GameEngine::GameEngine() {
     this->context->Init(archiveFiles, {}, 3, { 32000, 1024, 4800, audioChannelsSetting }, window, controlDeck);
     Switch2Debug_BootMark("context");
     Switch2Debug_Log("B boot:context-ready");
+    if (makeGameData) {
+        SwitchLoading_Stage("Making game data. Do not close the game", 0.0f, 0.45f);
+        if (!GenAssetFile(false)) {
+            SwitchLoading_ShowErrorAndWait("Could not make game data. Press A to exit");
+            _Exit(0);
+        }
+        // The game data goes first, so the port's own files and mods override it.
+        auto archiveManager = this->context->GetResourceManager()->GetArchiveManager();
+        archiveManager->AddArchive(main_path);
+        auto archives = archiveManager->GetArchives();
+        std::rotate(archives->begin(), archives->end() - 1, archives->end());
+        archiveManager->SetArchives(archives);
+    }
     SwitchLoading_Stage("Loading game data", 0.0f, 0.60f);
 #else
     this->context->Init(archiveFiles, {}, 3, { 32000, 1024, 1680, audioChannelsSetting }, window, controlDeck);

@@ -23,12 +23,9 @@ needed.
 
 1. Copy your US ROM to `/switch/starship/` on the SD card, next to
    `Starship.nro`.
-2. Start Starship from the homebrew menu and answer **Yes** to "Asset
-   Extraction". The Switch 2 makes `sf64.o2r`. This takes a few minutes.
-3. Starship then asks "Extract another?":
-   - **No**: play with the US voices.
-   - **Yes**: only if a JP or EU ROM is already in `/switch/starship/`.
-4. You can delete the ROM from the SD card once `sf64.o2r` is made.
+2. Start Starship from the homebrew menu. The loading screen shows it making
+   `sf64.o2r`. This can take a minute or more. Do not close the game.
+3. You can delete the ROM from the SD card once the game has started.
 
 ## Japanese or European voices (optional)
 

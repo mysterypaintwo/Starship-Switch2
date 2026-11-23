@@ -6,6 +6,11 @@
 #include "spdlog/spdlog.h"
 #ifdef __SWITCH__
 #include "spdlog/sinks/null_sink.h"
+#include "spdlog/sinks/base_sink.h"
+#include <algorithm>
+#include <mutex>
+#include <port/switch/SwitchLoading.h>
+#include <port/switch/Switch2Debug.h>
 #include <sys/statvfs.h>
 #include <cstdio>
 #endif
@@ -82,6 +87,25 @@ void RemoveIfPresent(const fs::path& path) {
     std::error_code error;
     fs::remove(path, error);
 }
+
+// The extractor logs about this many lines for a full ROM.
+constexpr unsigned int kExtractionLogLines = 75000;
+
+// Moves the loading screen's bar as the extractor logs its work.
+class ExtractionProgressSink : public spdlog::sinks::base_sink<std::mutex> {
+  protected:
+    void sink_it_(const spdlog::details::log_msg&) override {
+        if ((++mSteps & 31) == 0) {
+            SwitchLoading_Update(static_cast<int>(std::min(mSteps, kExtractionLogLines)),
+                                 static_cast<int>(kExtractionLogLines));
+        }
+    }
+    void flush_() override {
+    }
+
+  private:
+    unsigned int mSteps = 0;
+};
 } // namespace
 
 bool GameExtractor::IsCompleteArchive(const std::filesystem::path& path) {
@@ -100,6 +124,52 @@ bool GameExtractor::IsCompleteArchive(const std::filesystem::path& path) {
     const uint32_t directorySize = end[12] | (end[13] << 8) | (end[14] << 16) | ((uint32_t) end[15] << 24);
     const uint32_t directoryStart = end[16] | (end[17] << 8) | (end[18] << 16) | ((uint32_t) end[19] << 24);
     return static_cast<uint64_t>(directoryStart) + directorySize + 22 == static_cast<uint64_t>(size);
+}
+
+bool GameExtractor::ScanForUsRom(std::string& report) {
+    const fs::path appDir = Ship::Context::GetAppDirectoryPath();
+    std::string found;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(appDir, ec)) {
+        if (!entry.is_regular_file(ec)) {
+            continue;
+        }
+        std::string ext = entry.path().extension().string();
+        for (auto& c : ext) {
+            c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        }
+        if (ext != ".z64" && ext != ".n64" && ext != ".v64") {
+            continue;
+        }
+        const std::string fileName = entry.path().filename().string();
+        std::ifstream file(entry.path(), std::ios::binary);
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)), {});
+        file.close();
+
+        std::string result = "not an N64 ROM";
+        bool isUs = false;
+        if (ToBigEndianRom(data)) {
+            const auto game = mGameList.find(Companion::CalculateHash(data));
+            if (game == mGameList.end()) {
+                result = "unsupported version or modified ROM";
+            } else {
+                result = game->second;
+                isUs = IsUsRom(game->second);
+            }
+        }
+        char line[220];
+        snprintf(line, sizeof(line), "B boot:rom %s = %s", fileName.c_str(), result.c_str());
+        Switch2Debug_Log(line);
+        if (isUs) {
+            return true;
+        }
+        found += "  - " + fileName + ": " + result + "\n";
+    }
+    report = found.empty() ? "No ROM was found in /switch/starship/.\n"
+                           : "No supported US ROM was found in /switch/starship/. Found:\n\n" + found + "\n";
+    report += "Copy your US Star Fox 64 ROM (.z64, .n64 or .v64) there, or copy sf64.o2r.\n"
+              "See GAME-DATA.md in the download.";
+    return false;
 }
 
 bool GameExtractor::LastFailureWasStorage() {
@@ -225,8 +295,9 @@ bool GameExtractor::GenerateOTR() const {
     // one to the SD card, which turns seconds of work into minutes.
     const auto gameLogger = spdlog::default_logger();
     const auto gameLogLevel = gameLogger->level();
+    gameLogger->flush();
     spdlog::set_default_logger(
-        std::make_shared<spdlog::logger>("extractor", std::make_shared<spdlog::sinks::null_sink_mt>()));
+        std::make_shared<spdlog::logger>("extractor", std::make_shared<ExtractionProgressSink>()));
 #endif
 
     bool ok = true;

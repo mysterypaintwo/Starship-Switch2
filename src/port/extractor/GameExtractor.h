@@ -18,6 +18,9 @@ public:
     static bool LastFailureWasStorage();
     // The extractor keeps global state that is unsafe to destroy at exit.
     static bool HasRun();
+    // Hashes every ROM in the Starship folder. Returns true if one is a supported
+    // US ROM. Otherwise, report says what was found.
+    static bool ScanForUsRom(std::string& report);
     // Limits the voice ROM search: 0 any, 1 JP, 2 EU.
     static void SetVoiceTarget(int language);
 #endif

@@ -5,7 +5,7 @@
 **Added**
 - A full-screen menu with search, sized for the Switch 2 screen.
 - One Voices menu for English, Japanese and European (Lylat Wars).
-- A loading screen with a progress bar.
+- A loading screen with a progress bar, including while it makes the game data from your ROM.
 
 **Improved**
 - Much less stutter. Shaders are prepared during boot and game data stays in memory.
