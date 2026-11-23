@@ -45,6 +45,7 @@ class GameEngine {
     static void ProcessGfxCommands(Gfx* commands);
 
     static void PrepareShaders();
+#ifdef __SWITCH__
     // Installs JP/EU voices between frames, never from inside the menu's draw code.
     static void RequestVoiceInstall();
     static void ProcessVoiceInstall();
@@ -56,6 +57,7 @@ class GameEngine {
     static bool IsVoiceInstalled(int language);
     // The voice pack loaded this session: 0 English, 1 JP, 2 EU.
     static int ActiveVoicePack();
+#endif
     static int ShowYesNoBox(const char* title, const char* box);
     static void ShowMessage(const char* title, const char* message, SDL_MessageBoxFlags type = SDL_MESSAGEBOX_ERROR);
     static bool HasVersion(SF64Version ver);

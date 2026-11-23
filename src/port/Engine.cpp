@@ -497,6 +497,7 @@ void GameEngine::Destroy() {
     Switch2Debug_Phase(1, "exit:done");
 }
 
+#ifdef __SWITCH__
 static int sVoiceInstallFrames = -1;
 static int sVoiceInstallResult = 0;
 
@@ -588,6 +589,8 @@ void GameEngine::ProcessVoiceInstall() {
     sVoicesOnDisk = -1;
     sVoiceInstallResult = result;
 }
+
+#endif
 
 // Builds known shaders behind the loading screen, then hands over to the game.
 void GameEngine::PrepareShaders() {
