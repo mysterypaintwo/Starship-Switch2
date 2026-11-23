@@ -13,6 +13,13 @@
 #include "port/Engine.h"
 #include "port/notification/notification.h"
 #include "utils/StringHelper.h"
+#include <algorithm>
+#include <cctype>
+#include <cstdarg>
+#include <cstdio>
+#include <map>
+#include <string>
+#include <vector>
 
 #ifdef __SWITCH__
 #include <port/switch/SwitchImpl.h>
@@ -24,6 +31,14 @@ extern "C" {
 #include <sf64audio_provisional.h>
 #include <sf64context.h>
 }
+
+// Switch 2 menus: the font is 1.5x and the padding 3x, so widen the fixed menu widths.
+#ifdef __SWITCH2__
+static constexpr float kSwitch2StyleScale = 3.0f;
+static constexpr float kMenuWidthScale = 2.0f;
+#else
+static constexpr float kMenuWidthScale = 1.0f;
+#endif
 
 namespace GameUI {
 std::shared_ptr<GameMenuBar> mGameMenuBar;
@@ -38,10 +53,20 @@ void SetupGuiElements() {
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
 
     auto& style = ImGui::GetStyle();
+#ifdef __SWITCH2__
+    // Same scale as the base style: these values replace the scaled ones.
+    style.FramePadding = ImVec2(4.0f * kSwitch2StyleScale, 6.0f * kSwitch2StyleScale);
+    style.ItemSpacing = ImVec2(8.0f * kSwitch2StyleScale, 6.0f * kSwitch2StyleScale);
+#else
     style.FramePadding = ImVec2(4.0f, 6.0f);
     style.ItemSpacing = ImVec2(8.0f, 6.0f);
+#endif
     style.Colors[ImGuiCol_MenuBarBg] = UIWidgets::Colors::DarkGray;
 
+#ifdef __SWITCH2__
+    // The full-screen menu always starts closed, even if it was open at the last quit.
+    CVarClear("gOpenMenuBar");
+#endif
     mGameMenuBar = std::make_shared<GameMenuBar>("gOpenMenuBar", CVarGetInteger("gOpenMenuBar", 0));
     gui->SetMenuBar(mGameMenuBar);
 
@@ -90,6 +115,9 @@ void Destroy() {
     mStatsWindow = nullptr;
     mInputEditorWindow = nullptr;
     mNotificationWindow = nullptr;
+    mGfxDebuggerWindow = nullptr;
+    gui->SetMenuBar(nullptr);
+    mGameMenuBar = nullptr;
 }
 
 std::string GetWindowButtonText(const char* text, bool menuOpen) {
@@ -115,11 +143,171 @@ static const char* filters[3] = {
 static const char* voiceLangs[] = {
     "Original", /*"Japanese",*/ "Lylat"
 };
+#ifdef __SWITCH2__
+// The full-screen menu reuses the menu bar's contents: top-level menus become
+// header tabs, and their submenus become sidebar sections.
+namespace StarshipMenu {
+static std::string sTab = "Settings";
+static std::string sSection;
+static std::map<std::string, std::vector<std::string>> sSections;
+static std::map<std::string, std::vector<std::string>> sNextSections;
+static std::vector<int> sDepthStack;
+static int sDepth = 0;
+static std::string sDrawTab;
+static ImGuiTextFilter sSearch;
+static std::string sSearchText;
+static bool sFiltering = false;
+static bool sLastShown = true;
+static int sMatches = 0;
+
+static std::string Normalized(const char* text) {
+    std::string out;
+    for (const char* c = text; *c != '\0' && !(c[0] == '#' && c[1] == '#'); c++) {
+        if (*c != ' ') {
+            out += static_cast<char>(tolower(static_cast<unsigned char>(*c)));
+        }
+    }
+    return out;
+}
+
+static bool Matches(const char* label) {
+    return Normalized(label).find(sSearchText) != std::string::npos;
+}
+
+static void AddSection(const std::string& tab, const char* label) {
+    auto& list = sNextSections[tab];
+    if (std::find(list.begin(), list.end(), label) == list.end()) {
+        list.push_back(label);
+    }
+}
+
+static bool Open(int depth) {
+    sDepthStack.push_back(sDepth);
+    sDepth = depth;
+    return true;
+}
+} // namespace StarshipMenu
+
+namespace UIWidgets {
+static bool StarshipBeginMenu(const char* label, const ImVec4& = ImVec4()) {
+    using namespace StarshipMenu;
+    if (sDepth == 0) {
+        const bool graphics = strcmp(label, "Graphics") == 0;
+        sDrawTab = graphics ? "Settings" : label;
+        if (graphics) {
+            AddSection("Settings", label);
+            return (sFiltering || (sTab == "Settings" && sSection == label)) && Open(2);
+        }
+        return (sFiltering || sTab == label) && Open(1);
+    }
+    AddSection(sDrawTab, label);
+    return (sFiltering || sSection == label) && Open(2);
+}
+
+static void StarshipSpacer(float height) {
+    // Spacers between submenus would only push the open section down.
+    if (StarshipMenu::sFiltering || (StarshipMenu::sDepth <= 1 && StarshipMenu::sTab == "Settings")) {
+        return;
+    }
+    Spacer(height);
+}
+
+// Whether a control with this label is shown by the current search.
+static bool StarshipShow(const char* label) {
+    using namespace StarshipMenu;
+    if (!sFiltering) {
+        return true;
+    }
+    sLastShown = Matches(label);
+    sMatches += sLastShown ? 1 : 0;
+    return sLastShown;
+}
+
+// For a control whose label is the Text line drawn just before it.
+static bool StarshipShowLast() {
+    return !StarshipMenu::sFiltering || StarshipMenu::sLastShown;
+}
+
+static void StarshipTooltip(const char* text) {
+    if (StarshipShowLast()) {
+        Tooltip(text);
+    }
+}
+
+static void StarshipPaddedSeparator(bool padTop = true, bool padBottom = true, float extraTop = 0.0f,
+                                    float extraBottom = 0.0f) {
+    if (!StarshipMenu::sFiltering) {
+        PaddedSeparator(padTop, padBottom, extraTop, extraBottom);
+    }
+}
+} // namespace UIWidgets
+
+namespace ImGui {
+static void StarshipEndMenu() {
+    StarshipMenu::sDepth = StarshipMenu::sDepthStack.back();
+    StarshipMenu::sDepthStack.pop_back();
+}
+
+static void StarshipText(const char* format, ...) IM_FMTARGS(1);
+static void StarshipText(const char* format, ...) {
+    char text[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    if (UIWidgets::StarshipShow(text)) {
+        TextUnformatted(text);
+    }
+}
+
+static bool StarshipBeginCombo(const char* label, const char* preview, ImGuiComboFlags flags = 0) {
+    return UIWidgets::StarshipShowLast() && BeginCombo(label, preview, flags);
+}
+
+static void StarshipDummy(const ImVec2& size) {
+    if (!StarshipMenu::sFiltering) {
+        Dummy(size);
+    }
+}
+
+static void StarshipSameLine(float offset = 0.0f, float spacing = -1.0f) {
+    if (!StarshipMenu::sFiltering) {
+        SameLine(offset, spacing);
+    }
+}
+} // namespace ImGui
+
+// The menu's controls are drawn straight from code, with no list of settings to
+// search, so each control asks the search whether to draw itself.
+#define BeginMenu StarshipBeginMenu
+#define EndMenu StarshipEndMenu
+#define Spacer StarshipSpacer
+#define Tooltip StarshipTooltip
+#define PaddedSeparator StarshipPaddedSeparator
+#define Text StarshipText
+#define BeginCombo StarshipBeginCombo
+#define Dummy StarshipDummy
+#define SameLine StarshipSameLine
+#define CVarCheckbox(label, ...) StarshipShow(label) && UIWidgets::CVarCheckbox(label, __VA_ARGS__)
+#define CVarSliderInt(label, ...) StarshipShow(label) && UIWidgets::CVarSliderInt(label, __VA_ARGS__)
+#define CVarSliderFloat(label, ...) StarshipShow(label) && UIWidgets::CVarSliderFloat(label, __VA_ARGS__)
+#define CVarCombobox(label, ...) StarshipShow(label) && UIWidgets::CVarCombobox(label, __VA_ARGS__)
+#define PaddedEnhancementCheckbox(label, ...) \
+    StarshipShow(label) && UIWidgets::PaddedEnhancementCheckbox(label, __VA_ARGS__)
+#define WindowButton(label, ...) StarshipShow(label) && UIWidgets::WindowButton(label, __VA_ARGS__)
+#define EnhancementCombobox(...) StarshipShowLast() && UIWidgets::EnhancementCombobox(__VA_ARGS__)
+#endif
+
 static const char* voiceLangsSPA[] = {
     "Español", /*"Japanese",*/ "Lylat"
 };
 
 void DrawSpeakerPositionEditor() {
+#ifdef __SWITCH2__
+    if (StarshipMenu::sFiltering) {
+        return;
+    }
+#endif
     static ImVec2 lastCanvasPos;
     ImGui::Text("Speaker Position Editor");
     ImVec2 canvasSize = ImVec2(200, 200); // Static canvas size
@@ -230,6 +418,101 @@ void DrawSpeakerPositionEditor() {
     ImGui::SetCursorScreenPos(ImVec2(canvasPos.x, canvasPos.y + canvasSize.y + 10));
 }
 
+#ifdef __SWITCH__
+#pragma push_macro("BeginCombo")
+#undef BeginCombo
+// The voice language, and the install of the JP and EU voices.
+static void DrawVoiceInstallControls() {
+    static const char* sInstallMessage = nullptr;
+    static const char* const kVoiceNames[] = { "English", "Japanese", "European (Lylat Wars)" };
+
+#ifdef __SWITCH2__
+    if (UIWidgets::StarshipShow("Voices"))
+#endif
+    {
+        int pack = CVarGetInteger("gVoicePack", 0);
+        if (pack < 0 || pack > 2 || (pack != 0 && !GameEngine::IsVoiceInstalled(pack))) {
+            pack = 0;
+        }
+        ImGui::TextUnformatted("Voices");
+        ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x, 520.0f));
+        if (ImGui::BeginCombo("##Voices", kVoiceNames[pack])) {
+            for (int option = 0; option < 3; option++) {
+                const bool available = option == 0 || GameEngine::IsVoiceInstalled(option);
+                const std::string label =
+                    std::string(kVoiceNames[option]) + (available ? "" : " (not installed)") + "##Voice";
+                if (ImGui::Selectable(label.c_str(), pack == option,
+                                      available ? ImGuiSelectableFlags_None : ImGuiSelectableFlags_Disabled)) {
+                    CVarSetInteger("gVoicePack", option);
+                    CVarSave();
+                    pack = option;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (pack != GameEngine::ActiveVoicePack()) {
+            ImGui::TextDisabled("Restart Starship to use these voices.");
+        }
+        ImGui::Spacing();
+    }
+
+#ifdef __SWITCH2__
+    if (UIWidgets::StarshipShow("Install JP/EU Audio"))
+#endif
+    {
+        const bool allInstalled = GameEngine::IsVoiceInstalled(1) && GameEngine::IsVoiceInstalled(2);
+        ImGui::BeginDisabled(allInstalled);
+        if (UIWidgets::Button(GameEngine::VoiceInstallLabel())) {
+            ImGui::OpenPopup("JP/EU Audio");
+        }
+        ImGui::EndDisabled();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Uses the JP and EU ROMs in /switch/starship/ (64 MB free needed); "
+                            "English is already in your US game.");
+        ImGui::PopTextWrapPos();
+    }
+
+    if (ImGui::BeginPopupModal("JP/EU Audio", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (const int result = GameEngine::TakeVoiceInstallResult()) {
+            sInstallMessage =
+                result == 1   ? "Audio installed. Choose it under Voices, then restart Starship."
+                : result == 2 ? "Not enough space on the SD card, or it could not be written.\n"
+                                "The install was canceled and its files were removed."
+                : result == 5 ? "No JP or EU ROM to install was found in /switch/starship/."
+                              : "The install failed and its files were removed.";
+        }
+        if (sInstallMessage != nullptr) {
+            ImGui::TextUnformatted(sInstallMessage);
+            ImGui::Spacing();
+            if (ImGui::Button("OK", ImVec2(360, 0))) {
+                sInstallMessage = nullptr;
+                ImGui::CloseCurrentPopup();
+            }
+        } else if (GameEngine::IsVoiceInstallPending()) {
+            ImGui::TextUnformatted("Installing JP/EU audio...");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("This can take a minute or more.");
+            ImGui::TextUnformatted("The screen will stay frozen until it is done.");
+            ImGui::TextUnformatted("Do not close the game.");
+        } else {
+            ImGui::TextUnformatted("Install JP/EU audio?");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("This can take a minute or more, and the screen");
+            ImGui::TextUnformatted("will freeze until it is done. Do not close the game.");
+            ImGui::Spacing();
+            if (ImGui::Button("Install", ImVec2(360, 0))) {
+                GameEngine::RequestVoiceInstall();
+            }
+            if (ImGui::Button("Cancel", ImVec2(360, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+}
+#pragma pop_macro("BeginCombo")
+#endif
+
 void DrawSettingsMenu(){
     if(UIWidgets::BeginMenu("Settings")){
         if (UIWidgets::BeginMenu("Audio")) {
@@ -308,10 +591,15 @@ void DrawSettingsMenu(){
             ImGui::EndMenu();
         }
         
-        if (!GameEngine::HasVersion(SF64_VER_JP) || GameEngine::HasVersion(SF64_VER_EU)) {
+        // On Switch this stays reachable, so the install status is always visible.
+#ifndef __SWITCH__
+        if (!GameEngine::HasVersion(SF64_VER_JP) || GameEngine::HasVersion(SF64_VER_EU))
+#endif
+        {
             UIWidgets::Spacer(0);
             if (UIWidgets::BeginMenu("Language")) {
-                ImGui::Dummy(ImVec2(150, 0.0f));
+                ImGui::Dummy(ImVec2(150.0f * kMenuWidthScale, 0.0f));
+#ifndef __SWITCH__
                 if (!GameEngine::HasVersion(SF64_VER_JP) && (GameEngine::HasVersion(SF64_VER_EU) || GameEngine::HasVersion(SF64_VER_EU_SPA))) {
                     if (GameEngine::HasVersion(SF64_VER_EU_SPA)) {
                         //UIWidgets::Spacer(0);
@@ -332,13 +620,20 @@ void DrawSettingsMenu(){
                                 Audio_SetVoiceLanguage(CVarGetInteger("gVoiceLanguage", 0));
                             };
                     }
-                } else {
+                }
+                else
+#endif
+                {
+#ifdef __SWITCH__
+                    DrawVoiceInstallControls();
+#else
                     if (UIWidgets::Button("Install JP/EU Audio")) {
                         if (GameEngine::GenAssetFile(false)){
                             GameEngine::ShowMessage("Success", "Audio assets installed. Changes will be applied on the next startup.", SDL_MESSAGEBOX_INFORMATION);
                         }
                         Ship::Context::GetInstance()->GetWindow()->Close();
                     }
+#endif
                 }
                 ImGui::EndMenu();
             }
@@ -365,7 +660,9 @@ void DrawSettingsMenu(){
         ImGui::EndMenu();
     }
 
+#ifndef __SWITCH2__
     ImGui::SetCursorPosY(0.0f);
+#endif
     if (UIWidgets::BeginMenu("Graphics")) {
         UIWidgets::WindowButton("Resolution Editor", "gAdvancedResolutionEditorEnabled", GameUI::mAdvancedResolutionSettingsWindow);
 
@@ -530,6 +827,9 @@ void DrawSettingsMenu(){
         UIWidgets::PaddedEnhancementCheckbox("Apply Point Filtering to UI Elements", "gHUDPointFiltering", true, false, false, "", UIWidgets::CheckboxGraphics::Cross, true);
         UIWidgets::Spacer(0);
 
+#ifdef __SWITCH2__
+        if (!StarshipMenu::sFiltering)
+#endif
         Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->DrawSettings();
 
         ImGui::EndMenu();
@@ -573,11 +873,7 @@ void DrawGameMenu() {
         }
 #endif
 
-#ifdef __SWITCH__
-        if (UIWidgets::MenuItem("Quit to Homebrew Menu")) {
-#else
-        if (UIWidgets::MenuItem("Quit")) {
-#endif
+        if (UIWidgets::MenuItem("Quit Game")) {
             Ship::Context::GetInstance()->GetWindow()->Close();
         }
         ImGui::EndMenu();
@@ -742,7 +1038,7 @@ void DrawCheatsMenu() {
                 .tooltip = "Hold A to keep firing. Release A to start charging a shot."
             });
             if (CVarGetInteger("gRapidFire", 0) == 1) {
-                ImGui::Dummy(ImVec2(22.0f, 0.0f));
+                ImGui::Dummy(ImVec2(22.0f * kMenuWidthScale, 0.0f));
                 ImGui::SameLine();
                 UIWidgets::CVarCheckbox("Hold L to Charge", "gLtoCharge", {
                     .tooltip = "If you prefer to not have auto-charge."
@@ -882,7 +1178,7 @@ void DrawDebugMenu() {
             .tooltip = "Press L to toggle Debug Pause"
         });
         if (CVarGetInteger("gLToDebugPause", 0)) {
-            ImGui::Dummy(ImVec2(22.0f, 0.0f));
+            ImGui::Dummy(ImVec2(22.0f * kMenuWidthScale, 0.0f));
             ImGui::SameLine();
             UIWidgets::CVarCheckbox("Frame Advance", "gLToFrameAdvance", {
             .tooltip = "Pressing L again advances one frame instead"
@@ -890,12 +1186,20 @@ void DrawDebugMenu() {
         }
 
         if (CVarGetInteger(StringHelper::Sprintf("gCheckpoint.%d.Set", gCurrentLevel).c_str(), 0)) {
-            if (UIWidgets::Button("Clear Checkpoint")) {
+            if (
+#ifdef __SWITCH2__
+                UIWidgets::StarshipShow("Clear Checkpoint") &&
+#endif
+                UIWidgets::Button("Clear Checkpoint")) {
                 CVarClear(StringHelper::Sprintf("gCheckpoint.%d.Set", gCurrentLevel).c_str());
                 Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
             }
         } else if (gPlayer != NULL && gGameState == GSTATE_PLAY) {
-            if (UIWidgets::Button("Set Checkpoint")) {
+            if (
+#ifdef __SWITCH2__
+                UIWidgets::StarshipShow("Set Checkpoint") &&
+#endif
+                UIWidgets::Button("Set Checkpoint")) {
                 CVarSetInteger(StringHelper::Sprintf("gCheckpoint.%d.Set", gCurrentLevel).c_str(), 1);
                 CVarSetInteger(StringHelper::Sprintf("gCheckpoint.%d.gSavedPathProgress", gCurrentLevel).c_str(), gGroundSurface);
                 CVarSetFloat(StringHelper::Sprintf("gCheckpoint.%d.gSavedPathProgress", gCurrentLevel).c_str(), (-gPlayer->pos.z) - 250.0f);
@@ -917,7 +1221,158 @@ void DrawDebugMenu() {
     }
 }
 
+#ifdef __SWITCH2__
+static bool StarshipHeaderButton(const char* label, bool selected) {
+    const ImVec4 accent(0.16f, 0.45f, 0.78f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, selected ? accent : ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent.x, accent.y, accent.z, 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(accent.x, accent.y, accent.z, 0.6f));
+    const bool pressed = ImGui::Button(label);
+    ImGui::PopStyleColor(3);
+    return pressed;
+}
+
+static bool StarshipRedButton(const char* icon) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.72f, 0.14f, 0.14f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.72f, 0.14f, 0.14f, 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.72f, 0.14f, 0.14f, 0.6f));
+    const bool pressed = ImGui::Button(icon);
+    ImGui::PopStyleColor(3);
+    return pressed;
+}
+
+static void DrawStarshipMenu(GameMenuBar* menu) {
+    using namespace StarshipMenu;
+    static int sLastFrame = -2;
+    if (ImGui::GetFrameCount() != sLastFrame + 1) {
+        ImGui::SetNextWindowFocus();
+    }
+    sLastFrame = ImGui::GetFrameCount();
+
+    sSections = sNextSections;
+    sNextSections.clear();
+    const auto& sections = sSections[sTab];
+    if (!sections.empty() && std::find(sections.begin(), sections.end(), sSection) == sections.end()) {
+        sSection = sections.front();
+    }
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.85f));
+    ImGui::Begin("Starship Menu", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoDocking);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 blockSize(std::min(viewport->Size.x * 0.9f, viewport->Size.y * 1.77f), viewport->Size.y * 0.9f);
+    const ImVec2 blockPos(viewport->Pos.x + (viewport->Size.x - blockSize.x) / 2,
+                          viewport->Pos.y + (viewport->Size.y - blockSize.y) / 2);
+    ImGui::SetCursorScreenPos(blockPos);
+
+    static const char* kTabs[] = { "Settings", "Enhancements", "Cheats", "Developer" };
+    for (const char* tab : kTabs) {
+        if (StarshipHeaderButton(tab, sTab == tab)) {
+            sTab = tab;
+            sSection.clear();
+        }
+        ImGui::SameLine();
+    }
+    const float iconWidth = ImGui::CalcTextSize(ICON_FA_TIMES_CIRCLE).x + style.FramePadding.x * 2;
+    const float iconsX = blockPos.x + blockSize.x - iconWidth * 3 - style.ItemSpacing.x * 2;
+    const float searchX = ImGui::GetCursorScreenPos().x;
+    const float minSearch = ImGui::CalcTextSize("Search...").x + style.FramePadding.x * 2 + 8.0f;
+    const float searchWidth = std::max(minSearch, std::min(iconsX - searchX - style.ItemSpacing.x, 400.0f));
+    ImGui::SetCursorScreenPos(ImVec2(searchX, blockPos.y));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.16f, 0.45f, 0.78f, 0.6f));
+    sSearch.Draw("##StarshipSearch", searchWidth);
+    ImGui::PopStyleColor();
+    sSearchText = Normalized(sSearch.InputBuf);
+    if (sSearch.InputBuf[0] == '\0' && !ImGui::IsItemActive()) {
+        ImGui::GetWindowDrawList()->AddText(ImVec2(searchX + style.FramePadding.x, blockPos.y + style.FramePadding.y),
+                                            IM_COL32(255, 255, 255, 110), "Search...");
+    }
+    ImGui::SetCursorScreenPos(ImVec2(blockPos.x + blockSize.x - iconWidth * 3 - style.ItemSpacing.x * 2, blockPos.y));
+    if (StarshipRedButton(ICON_FA_POWER_OFF "##quit")) {
+        ImGui::OpenPopup("Quit Game");
+    }
+    ImGui::SameLine();
+    if (StarshipRedButton(ICON_FA_REFRESH "##reset")) {
+        gNextGameState = GSTATE_BOOT;
+    }
+    ImGui::SameLine();
+    if (StarshipRedButton(ICON_FA_TIMES_CIRCLE "##close")) {
+        menu->ToggleVisibility();
+    }
+
+    if (ImGui::BeginPopupModal("Quit Game", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Are you sure you want to quit?");
+        if (ImGui::Button("Quit Game##confirm")) {
+            ImGui::CloseCurrentPopup();
+            Ship::Context::GetInstance()->GetWindow()->Close();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##quit")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    const float headerHeight = ImGui::GetFrameHeight() + style.ItemSpacing.y;
+    const float lineY = blockPos.y + headerHeight;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(ImVec2(blockPos.x, lineY), ImVec2(blockPos.x + blockSize.x, lineY + 4.0f), IM_COL32_WHITE);
+    const float bodyY = lineY + 4.0f + style.ItemSpacing.y;
+    const float bodyHeight = blockPos.y + blockSize.y - bodyY;
+
+    float contentX = blockPos.x;
+    if (!sections.empty() && sSearchText.empty()) {
+        float sidebarWidth = 0.0f;
+        for (const auto& section : sections) {
+            sidebarWidth = std::max(sidebarWidth, ImGui::CalcTextSize(section.c_str()).x);
+        }
+        sidebarWidth += style.FramePadding.x * 2 + style.ItemSpacing.x * 2;
+        ImGui::SetCursorScreenPos(ImVec2(blockPos.x, bodyY));
+        ImGui::BeginChild("Starship Sections", ImVec2(sidebarWidth, bodyHeight), ImGuiChildFlags_NavFlattened);
+        for (const auto& section : sections) {
+            if (StarshipHeaderButton(section.c_str(), sSection == section)) {
+                sSection = section;
+            }
+        }
+        ImGui::EndChild();
+        const float dividerX = blockPos.x + sidebarWidth + style.ItemSpacing.x;
+        draw->AddRectFilled(ImVec2(dividerX, bodyY), ImVec2(dividerX + 4.0f, bodyY + bodyHeight), IM_COL32_WHITE);
+        contentX = dividerX + 4.0f + style.ItemSpacing.x;
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(contentX, bodyY));
+    ImGui::BeginChild("Starship Content", ImVec2(blockPos.x + blockSize.x - contentX, bodyHeight),
+                      ImGuiChildFlags_NavFlattened);
+    sFiltering = !sSearchText.empty();
+    sLastShown = true;
+    sMatches = 0;
+    DrawSettingsMenu();
+    DrawEnhancementsMenu();
+    DrawCheatsMenu();
+    DrawDebugMenu();
+    const bool noResults = sFiltering && sMatches == 0;
+    sFiltering = false;
+    if (noResults) {
+        ImGui::TextUnformatted("No results found");
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+#endif
+
 void GameMenuBar::DrawElement() {
+#ifdef __SWITCH2__
+    DrawStarshipMenu(this);
+    return;
+#endif
     if(ImGui::BeginMenuBar()){
         DrawMenuBarIcon();
 

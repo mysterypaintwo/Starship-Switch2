@@ -84,10 +84,13 @@ endif()
 # Global configuration types
 ################################################################################
 if (CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
-set(CMAKE_C_FLAGS_DEBUG "-g -ffast-math -DDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -ffast-math -DDEBUG")
-set(CMAKE_C_FLAGS_RELEASE "-O3 -ffast-math -DNDEBUG")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -ffast-math -DNDEBUG")
+# The decompiled N64 code type-puns, relies on wrapping and infinities, and
+# has uninitialized locals. GCC optimizes all of those into wrong behavior.
+set(SWITCH_SAFE_FLAGS "-fno-strict-aliasing -fwrapv -fno-finite-math-only -ftrivial-auto-var-init=zero")
+set(CMAKE_C_FLAGS_DEBUG "-g -ffast-math ${SWITCH_SAFE_FLAGS} -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -ffast-math ${SWITCH_SAFE_FLAGS} -DDEBUG")
+set(CMAKE_C_FLAGS_RELEASE "-O3 -ffast-math ${SWITCH_SAFE_FLAGS} -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -ffast-math ${SWITCH_SAFE_FLAGS} -DNDEBUG")
 else()
 set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
@@ -396,10 +399,17 @@ else()
     set(NACP_TITLE "${PROJECT_NAME}")
 endif()
 
+# The version shown in the homebrew menu. PROJECT_VERSION stays upstream's.
+if (NINTENDO_SWITCH2)
+    set(NACP_VERSION "1.1")
+else()
+    set(NACP_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
+endif()
+
 nx_generate_nacp(${PROJECT_NAME}.nacp
    NAME "${NACP_TITLE}"
-   AUTHOR "${PROJECT_TEAM}"
-   VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
+   AUTHOR "${PROJECT_TEAM}, mysterypaint"
+   VERSION "${NACP_VERSION}"
 )
 
 nx_create_nro(${PROJECT_NAME}

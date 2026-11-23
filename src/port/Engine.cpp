@@ -1,3 +1,14 @@
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include "port/notification/notification.h"
+#include "port/switch/Switch2Debug.h"
+#include "port/switch/SwitchLoading.h"
+#ifdef __SWITCH__
+#include "port/switch/SwitchShaderCache.h"
+#endif
 #include "Engine.h"
 #include "ui/ImguiUI.h"
 #include "StringHelper.h"
@@ -62,13 +73,100 @@ void AudioThread_CreateNextAudioBuffer(int16_t* samples, uint32_t num_samples);
 std::vector<uint8_t*> MemoryPool;
 GameEngine* GameEngine::Instance;
 
+#ifdef __SWITCH__
+namespace {
+std::string VoiceGuardPath() {
+    return Ship::Context::GetPathRelativeToAppDirectory("voice-check.tmp");
+}
+
+int sActiveVoicePack = 0;
+
+// Sets aside a voice archive that is damaged, or that was active when the last
+// launch died, so one bad install cannot stop the game from starting.
+void CheckVoiceArchives() {
+    std::error_code ec;
+    std::string diedWith;
+    {
+        std::ifstream guard(VoiceGuardPath());
+        std::getline(guard, diedWith);
+    }
+    for (const char* name : { "sf64jp.o2r", "sf64eu.o2r" }) {
+        const auto path = std::filesystem::path(Ship::Context::GetPathRelativeToAppDirectory("mods")) / name;
+        if (!std::filesystem::exists(path, ec)) {
+            continue;
+        }
+        const bool complete = GameExtractor::IsCompleteArchive(path);
+        const bool died = diedWith == name;
+        char line[160];
+        snprintf(line, sizeof(line), "B boot:voice %s bytes=%llu complete=%d last-boot-died=%d", name,
+                 (unsigned long long) std::filesystem::file_size(path, ec), (int) complete, (int) died);
+        Switch2Debug_Log(line);
+        if (complete && !died) {
+            continue;
+        }
+        auto bad = path;
+        bad += ".bad";
+        std::filesystem::remove(bad, ec);
+        std::filesystem::rename(path, bad, ec);
+    }
+    std::filesystem::remove(VoiceGuardPath(), ec);
+}
+
+// JP and EU reuse many asset names with different data, so only one can be loaded.
+void SelectVoiceArchive(std::vector<std::string>& archives) {
+    const auto isNamed = [](const std::string& path, const char* name) {
+        return std::filesystem::path(path).filename() == name;
+    };
+    const bool haveJp = std::any_of(archives.begin(), archives.end(), [&](auto& p) { return isNamed(p, "sf64jp.o2r"); });
+    const bool haveEu = std::any_of(archives.begin(), archives.end(), [&](auto& p) { return isNamed(p, "sf64eu.o2r"); });
+    int pack = CVarGetInteger("gVoicePack", 0);
+    if ((pack == 1 && !haveJp) || (pack == 2 && !haveEu)) {
+        pack = 0;
+    }
+    sActiveVoicePack = pack;
+    // The EU game holds English and Lylat voices. "European" in the menu means Lylat.
+    CVarSetInteger("gVoiceLanguage", pack == 2 ? 1 : 0);
+    archives.erase(std::remove_if(archives.begin(), archives.end(),
+                                  [&](const std::string& path) {
+                                      return (pack != 1 && isNamed(path, "sf64jp.o2r")) ||
+                                             (pack != 2 && isNamed(path, "sf64eu.o2r"));
+                                  }),
+                   archives.end());
+    char line[64];
+    snprintf(line, sizeof(line), "B boot:voice-pack %d", pack);
+    Switch2Debug_Log(line);
+    if (pack != 0) {
+        std::ofstream guard(VoiceGuardPath());
+        guard << (pack == 1 ? "sf64jp.o2r" : "sf64eu.o2r") << "\n";
+    }
+}
+} // namespace
+#endif
+
 GameEngine::GameEngine() {
     // Initialize context properties early to recognize paths properly for non-portable builds
     this->context = Ship::Context::CreateUninitializedInstance("Starship", "ship", "starship.cfg.json");
 
 #ifdef __SWITCH__
+    {
+        // sf64.o2r can be made on the console from a ROM in this folder.
+        bool hasRom = false;
+        std::error_code romError;
+        for (const auto& entry : std::filesystem::directory_iterator(".", romError)) {
+            std::string ext = entry.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+            hasRom = hasRom || ext == ".z64" || ext == ".n64" || ext == ".v64";
+        }
+        Ship::Switch::RequireGameFiles("Starship", "/switch/starship/", { "starship.o2r" },
+                                       hasRom ? std::vector<std::string>{} : std::vector<std::string>{ "sf64.o2r" },
+                                       "Copy sf64.o2r or your US Star Fox 64 ROM there.\n"
+                                       "See GAME-DATA.md in the download.");
+    }
     Ship::Switch::Init(Ship::PreInitPhase);
     Ship::Switch::Init(Ship::PostInitPhase);
+    // Needs the sockets that PreInitPhase opens.
+    Switch2Debug_Start();
+    Switch2Debug_BootMark("start");
 #endif
 
     std::vector<std::string> archiveFiles;
@@ -79,11 +177,25 @@ GameEngine::GameEngine() {
     AllocConsole();
 #endif
 
+#ifdef __SWITCH__
+    {
+        char line[160];
+        snprintf(line, sizeof(line), "B boot:data sf64.o2r=%d starship.o2r=%d", (int) std::filesystem::exists(main_path),
+                 (int) std::filesystem::exists(assets_path));
+        Switch2Debug_Log(line);
+    }
+#endif
+
     if (std::filesystem::exists(main_path)) {
         archiveFiles.push_back(main_path);
     } else {
         if (ShowYesNoBox("Starship - Asset Extraction", "Please provide a Starfox 64 ROM.\n\nSupported Versions:\nUS 1.0\nUS 1.1\n\nAssets will be extracted into an O2R file.") == IDYES) {
             if(!GenAssetFile()){
+#ifdef __SWITCH__
+                Ship::Switch::ShowSetupErrorAndExit("Starship could not make its game data",
+                                                    "Extracting your ROM failed, so sf64.o2r was not created.\n"
+                                                    "See GAME-DATA.md in the download.");
+#endif
                 ShowMessage("Error", "An error occured, no O2R file was generated.\n\nExiting...");
                 exit(1);
             } else {
@@ -109,6 +221,10 @@ GameEngine::GameEngine() {
         archiveFiles.push_back(assets_path);
     }
 
+#ifdef __SWITCH__
+    CheckVoiceArchives();
+#endif
+
     if (const std::string patches_path = Ship::Context::GetPathRelativeToAppDirectory("mods");
         !patches_path.empty()) {
         if (!std::filesystem::exists(patches_path)) {
@@ -130,9 +246,13 @@ GameEngine::GameEngine() {
         }
     }
 
+    Switch2Debug_Log("B boot:config");
     this->context->InitConfiguration();    // without this line InitConsoleVariables fails at Config::Reload()
     this->context->InitConsoleVariables(); // without this line the controldeck constructor failes in
                                            // ShipDeviceIndexMappingManager::UpdateControllerNamesFromConfig()
+#ifdef __SWITCH__
+    SelectVoiceArchive(archiveFiles);
+#endif
 
     auto defaultMappings = std::make_shared<Ship::ControllerDefaultMappings>(
         // KeyboardKeyToButtonMappings - use built-in LUS defaults
@@ -175,13 +295,24 @@ GameEngine::GameEngine() {
     );
     auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>(), defaultMappings);
 
+    Switch2Debug_Log("B boot:archives");
     this->context->InitResourceManager(archiveFiles, {}, 3); // without this line InitWindow fails in Gui::Init()
     this->context->InitConsole(); // without this line the GuiWindow constructor fails in ConsoleWindow::InitElement()
 
+    Switch2Debug_Log("B boot:window");
     auto window = std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({}));
 
     auto audioChannelsSetting = Ship::Context::GetInstance()->GetConfig()->GetCurrentAudioChannelsSetting();
+#ifdef __SWITCH__
+    // Audio is made once per game frame. Keep more of it queued (150 ms, not
+    // 52 ms) so a slow frame does not empty the buffer and crackle.
+    this->context->Init(archiveFiles, {}, 3, { 32000, 1024, 4800, audioChannelsSetting }, window, controlDeck);
+    Switch2Debug_BootMark("context");
+    Switch2Debug_Log("B boot:context-ready");
+    SwitchLoading_Stage("Loading game data", 0.0f, 0.60f);
+#else
     this->context->Init(archiveFiles, {}, 3, { 32000, 1024, 1680, audioChannelsSetting }, window, controlDeck);
+#endif
 
 #ifndef __SWITCH__
     Ship::Context::GetInstance()->GetLogger()->set_level(
@@ -286,6 +417,12 @@ bool GameEngine::GenAssetFile(bool exitOnFail) {
         if (!fs::exists(Ship::Context::GetPathRelativeToAppDirectory("sf64.o2r"))) {
             ShowMessage("Error", "No supported US ROM found.\n\nCopy your Star Fox 64 (US) ROM (.z64, .n64 or .v64)\n"
                                  "to /switch/starship/ and start Starship again.\n\nExiting...");
+            if (exitOnFail) {
+                // Nothing is on screen yet, so say why instead of just closing.
+                Ship::Switch::ShowSetupErrorAndExit("Starship is not set up yet",
+                                                    "No supported US Star Fox 64 ROM was found in /switch/starship/.\n"
+                                                    "See GAME-DATA.md in the download.");
+            }
         } else {
             ShowMessage("Error", "No JP or EU ROM found.\n\nCopy your Star Fox 64 JP or EU ROM (.z64, .n64 or .v64)\n"
                                  "to /switch/starship/, then choose Install JP/EU Audio again.");
@@ -300,6 +437,7 @@ bool GameEngine::GenAssetFile(bool exitOnFail) {
         }
     }
 
+    Switch2Debug_Log("B boot:rom-selected");
     auto game = extractor->ValidateChecksum();
     if (!game.has_value()) {
         ShowMessage("Unsupported ROM", "The provided ROM is not supported.\n\nCheck the readme for a list of supported versions.");
@@ -312,34 +450,172 @@ bool GameEngine::GenAssetFile(bool exitOnFail) {
 
     ShowMessage(("Starship - Extraction - Found " + game.value()).c_str(), "The extraction process will now begin.\n\nThis may take a few minutes.", SDL_MESSAGEBOX_INFORMATION);
 
-    return extractor->GenerateOTR();
+    Switch2Debug_Log("B boot:extracting");
+    const bool extracted = extractor->GenerateOTR();
+    Switch2Debug_Log(extracted ? "B boot:extracted" : "B boot:extract-failed");
+    return extracted;
 }
 
 void GameEngine::Create() {
     const auto instance = Instance = new GameEngine();
+    Switch2Debug_Log("B boot:audio-thread");
     instance->AudioInit();
+    Switch2Debug_Log("B boot:patches");
     DisplayListPatch::Run();
+    Switch2Debug_Log("B boot:gui");
     GameUI::SetupGuiElements();
 #if defined(__SWITCH__) || defined(__WIIU__)
     CVarRegisterInteger("gControlNav", 1); // always enable controller nav on switch/wii u
     osSetTime(0);
 #endif
+    Switch2Debug_Log("B boot:enhancements");
     PortEnhancements_Init();
+    Switch2Debug_Log("B boot:engine-ready");
 }
 
 void GameEngine::Destroy() {
+    Switch2Debug_Log("B exit:start");
+    Switch2Debug_Phase(1, "exit:enhancements");
     PortEnhancements_Exit();
+    Switch2Debug_Phase(1, "exit:audio-thread");
     AudioExit();
+#ifdef __SWITCH__
+    // Release the GUI and the context (window, GL, SDL, audio) now, after the
+    // audio thread has stopped and before the game's memory is freed: resources
+    // released here can still point into it.
+    Switch2Debug_Phase(1, "exit:gui");
+    GameUI::Destroy();
+    Switch2Debug_Log("B exit:context");
+    Switch2Debug_Phase(1, "exit:context");
+    Instance->context = nullptr;
+    Switch2Debug_Phase(1, "exit:memory");
+#endif
     for (auto ptr : MemoryPool) {
         free(ptr);
     }
     MemoryPool.clear();
+    Switch2Debug_Phase(1, "exit:done");
+}
+
+static int sVoiceInstallFrames = -1;
+static int sVoiceInstallResult = 0;
+
+void GameEngine::RequestVoiceInstall() {
+    if (sVoiceInstallFrames >= 0) {
+        return;
+    }
+    bool found = false;
+    for (int language = 1; language <= 2 && !found; language++) {
+        if (!IsVoiceInstalled(language)) {
+            GameExtractor::SetVoiceTarget(language);
+            GameExtractor extractor;
+            found = extractor.SelectGameFromUI();
+        }
+    }
+    GameExtractor::SetVoiceTarget(0);
+    if (!found) {
+        sVoiceInstallResult = 5;
+        return;
+    }
+    // Let the install message reach the screen before extraction blocks the game.
+    sVoiceInstallFrames = 20;
+}
+
+// Bit 0 is JP and bit 1 is EU. Checked once, then again after each install.
+static int sVoicesOnDisk = -1;
+
+static int VoicesOnDisk() {
+    if (sVoicesOnDisk < 0) {
+        std::error_code error;
+        const std::filesystem::path mods = Ship::Context::GetPathRelativeToAppDirectory("mods");
+        sVoicesOnDisk = (std::filesystem::exists(mods / "sf64jp.o2r", error) ? 1 : 0) |
+                        (std::filesystem::exists(mods / "sf64eu.o2r", error) ? 2 : 0);
+    }
+    return sVoicesOnDisk;
+}
+
+const char* GameEngine::VoiceInstallLabel() {
+    static const char* const labels[] = {
+        "Install JP/EU Audio###InstallVoices",
+        "Install JP/EU Audio (JP Installed)###InstallVoices",
+        "Install JP/EU Audio (EU Installed)###InstallVoices",
+        "Install JP/EU Audio (Installed)###InstallVoices",
+    };
+    return labels[VoicesOnDisk()];
+}
+
+bool GameEngine::IsVoiceInstalled(int language) {
+    return (VoicesOnDisk() & language) != 0;
+}
+
+int GameEngine::ActiveVoicePack() {
+    return sActiveVoicePack;
+}
+
+bool GameEngine::IsVoiceInstallPending() {
+    return sVoiceInstallFrames >= 0;
+}
+
+int GameEngine::TakeVoiceInstallResult() {
+    const int result = sVoiceInstallResult;
+    sVoiceInstallResult = 0;
+    return result;
+}
+
+void GameEngine::ProcessVoiceInstall() {
+    if (sVoiceInstallFrames < 0 || sVoiceInstallFrames-- > 0) {
+        return;
+    }
+    sVoiceInstallFrames = -1;
+    // Install every language that has a ROM in the folder.
+    int result = 5;
+    for (int language = 1; language <= 2; language++) {
+        if (IsVoiceInstalled(language)) {
+            continue;
+        }
+        GameExtractor::SetVoiceTarget(language);
+        GameExtractor extractor;
+        if (!extractor.SelectGameFromUI()) {
+            continue;
+        }
+        if (!GenAssetFile(false)) {
+            result = GameExtractor::LastFailureWasStorage() ? 2 : 3;
+            break;
+        }
+        result = 1;
+    }
+    GameExtractor::SetVoiceTarget(0);
+    sVoicesOnDisk = -1;
+    sVoiceInstallResult = result;
+}
+
+// Builds known shaders behind the loading screen, then hands over to the game.
+void GameEngine::PrepareShaders() {
 #ifdef __SWITCH__
-    // Release the GUI and the context (window, GL, SDL, audio) now, after the
-    // audio thread has stopped. Without this the GL window is still open when
-    // the app returns to the homebrew menu.
-    GameUI::Destroy();
-    Instance->context = nullptr;
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto interpreter = wnd != nullptr ? wnd->GetInterpreterWeak().lock() : nullptr;
+    if (interpreter != nullptr) {
+        SwitchShaderCache_Open();
+        std::vector<std::pair<uint64_t, uint64_t>> shaders;
+        for (const auto& entry : SwitchShaderCache_KnownShaders()) {
+            shaders.push_back(entry);
+        }
+        SwitchLoading_Stage("Preparing shaders", 0.60f, 0.72f);
+        interpreter->PrepareShaders(shaders, SwitchLoading_Update);
+        SwitchShaderCache_ReleaseBinaries();
+        Switch2Debug_BootMark("shaders");
+        SwitchLoading_Stage("Preparing graphics", 0.72f, 1.0f);
+        interpreter->WarmShaders(shaders, SwitchLoading_Update);
+        Switch2Debug_BootMark("graphics");
+    }
+    SwitchLoading_Finish();
+#ifdef __SWITCH__
+    {
+        // The voice pack got the game to its first frame.
+        std::error_code guardError;
+        std::filesystem::remove(VoiceGuardPath(), guardError);
+    }
+#endif
 #endif
 }
 
@@ -418,8 +694,22 @@ void GameEngine::HandleAudioThread() {
 
         const int32_t num_audio_channels = GetNumAudioChannels();
 
+#ifdef __SWITCH__
+        // Audio is made once per drawn frame, so a late frame leaves too little
+        // of it: the music slows down and the queue runs dry. Make extra updates
+        // until the queue is back at its target, except while the audio heap resets.
+        constexpr int kMaxAudioUpdates = 9;
+        int audioUpdates = AUDIO_FRAMES_PER_UPDATE;
+        while (gAudioResetStep == 0 && audioUpdates < kMaxAudioUpdates &&
+               samples_left + audioUpdates * (int) num_audio_samples < AudioPlayerGetDesiredBuffered()) {
+            audioUpdates++;
+        }
+        s16 audio_buffer[SAMPLES_HIGH * MAX_NUM_AUDIO_CHANNELS * kMaxAudioUpdates] = { 0 };
+#else
+        const int audioUpdates = AUDIO_FRAMES_PER_UPDATE;
         s16 audio_buffer[SAMPLES_HIGH * MAX_NUM_AUDIO_CHANNELS * MAX_AUDIO_FRAMES_PER_UPDATE] = { 0 };
-        for (int i = 0; i < AUDIO_FRAMES_PER_UPDATE; i++) {
+#endif
+        for (int i = 0; i < audioUpdates; i++) {
             AudioThread_CreateNextAudioBuffer(audio_buffer + i * (num_audio_samples * num_audio_channels),
                                               num_audio_samples);
         }
@@ -430,7 +720,7 @@ void GameEngine::HandleAudioThread() {
         }
 #endif
         AudioPlayerPlayFrame((u8*) audio_buffer,
-                             num_audio_samples * (sizeof(int16_t) * num_audio_channels * AUDIO_FRAMES_PER_UPDATE));
+                             num_audio_samples * (sizeof(int16_t) * num_audio_channels * audioUpdates));
         
         audio.processing = false;
         audio.cv_from_thread.notify_one();
@@ -585,6 +875,11 @@ extern "C" uint32_t GameEngine_GetInterpolationFrameCount() {
 void GameEngine::ShowMessage(const char* title, const char* message, SDL_MessageBoxFlags type) {
 #if defined(__SWITCH__)
     SPDLOG_ERROR(message);
+    {
+        char line[220];
+        snprintf(line, sizeof(line), "B message: %s: %s", title, message);
+        Switch2Debug_Log(line);
+    }
 #else
     SDL_ShowSimpleMessageBox(type, title, message, nullptr);
     SPDLOG_ERROR(message);

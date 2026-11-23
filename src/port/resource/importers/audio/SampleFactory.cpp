@@ -10,6 +10,11 @@
 
 #include "vorbis/vorbisfile.h"
 
+// The synthesizer loads ADPCM samples in aligned chunks, and the last chunk can
+// run past the end of the sample. Zeroed padding keeps that read inside the
+// allocation (it faulted on Switch 2) without shortening any sound.
+static constexpr size_t kSampleReadPadding = 256;
+
 namespace SF64 {
 std::shared_ptr<Ship::IResource> ResourceFactoryBinarySampleV1::ReadResource(std::shared_ptr<Ship::File> file,
                                                                              std::shared_ptr<Ship::ResourceInitData> initData) {
@@ -26,7 +31,7 @@ std::shared_ptr<Ship::IResource> ResourceFactoryBinarySampleV1::ReadResource(std
     sample->mSample.size = reader->ReadUInt32();
     sample->mSample.loop = LoadChild<AdpcmLoopData*>(reader->ReadUInt64());
     sample->mSample.book = LoadChild<AdpcmBookData*>(reader->ReadUInt64());
-    sample->mSample.sampleAddr = new uint8_t[sample->mSample.size];
+    sample->mSample.sampleAddr = new uint8_t[sample->mSample.size + kSampleReadPadding]();
     reader->Read((char*) sample->mSample.sampleAddr, sample->mSample.size);
 
     if(sample->mSample.codec == 2){
@@ -221,7 +226,7 @@ std::shared_ptr<Ship::IResource> ResourceFactoryXMLSampleV0::ReadResource(std::s
         }
     }
     // Not a normal streamed sample. Fallback to the original ADPCM sample to be decoded by the audio engine.
-    sample->mSample.sampleAddr = new uint8_t[size];
+    sample->mSample.sampleAddr = new uint8_t[size + kSampleReadPadding]();
     // Can't use memcpy due to endianness issues.
     for (uint32_t i = 0; i < size; i++) {
         sample->mSample.sampleAddr[i] = (*sampleFile->Buffer)[i];

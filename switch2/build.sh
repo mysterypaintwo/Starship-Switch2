@@ -9,15 +9,17 @@
 #
 # The archive has Starship.nro, starship.o2r (the port's own assets, made
 # without a ROM), config.yml and assets/yaml (the extractor's descriptions of
-# the ROM) and the readme. sf64.o2r is made from a ROM, so it is never put in
-# the archive: each player makes their own (see switch2/README.md).
+# the ROM) and the player docs. sf64.o2r is made from a ROM, so it is never put in
+# the archive: each player makes their own (see switch2/GAME-DATA.md).
 
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/build-switch2"
 
-git -C "$ROOT" submodule update --init libultraship tools/Torch
+# Fetch the submodules only if missing, so local library work is never reset.
+[ -f "$ROOT/libultraship/CMakeLists.txt" ] && [ -f "$ROOT/tools/Torch/CMakeLists.txt" ] || \
+    git -C "$ROOT" submodule update --init libultraship tools/Torch
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ROOT/switch2/cmake/Switch2.cmake" \
@@ -40,8 +42,9 @@ if [ -f "$ROOT/starship.o2r" ]; then
 else
     echo "warning: starship.o2r not found; make it with the GeneratePortO2R target" >&2
 fi
-cp "$ROOT/switch2/README.md" "$DIST/readme.txt"
+cp "$ROOT/switch2/PLAYER-README.txt" "$DIST/readme.txt"
 cp "$ROOT/switch2/GAME-DATA.md" "$DIST/GAME-DATA.md"
+cp "$ROOT/switch2/CHANGELOG.md" "$DIST/CHANGELOG.md"
 
 # Stop if a ROM-derived file got into the archive folder.
 if find "$DIST" -name 'sf64*.o2r' -o -name '*.z64' -o -name '*.n64' -o -name '*.v64' | grep -q .; then

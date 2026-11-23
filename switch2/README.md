@@ -4,45 +4,7 @@ This folder builds Starship (the Star Fox 64 port) for Switch 2 with the ounce
 homebrew SDK (libounce and OunceVK). It is listed in the homebrew menu as
 "HarbourMasters - Starship".
 
-## Install
-
-1. Copy the `switch/starship/` folder from the archive to the root of the SD
-   card. It has `Starship.nro`, `starship.o2r` (the port's own assets),
-   `config.yml` and `assets/` (used to read the ROM).
-2. Give Starship the game assets (`GAME-DATA.md`, next to this file, explains
-   it step by step):
-   - Copy your own US ROM (`.z64`, `.n64` or `.v64`, any name) to
-     `/switch/starship/`. Starship makes `sf64.o2r` from it on the first
-     start. This takes a few minutes.
-   - Or make `sf64.o2r` on a computer with the PC version of Starship, and
-     copy it to `/switch/starship/`.
-   - Optional: a JP or EU ROM in the same folder adds Japanese or European
-     voices (Settings > Language > Install JP/EU Audio).
-3. Start "HarbourMasters - Starship" from the homebrew menu.
-
-The archive never has `sf64.o2r` or a ROM: they are made from a ROM, and you
-must use your own.
-
-Supported ROMs (SHA-1 of the `.z64` file):
-
-- US 1.0: `d8b1088520f7c5f81433292a9258c1184afa1457`
-- US 1.1: `09f0d105f476b00efa5303a3ebc42e60a7753b7a`
-
-## Playing
-
-- Press `-` to open the menu.
-- Default buttons: B fires, Y drops a bomb, ZL boosts, ZR brakes, L and R
-  roll, X looks first person (C-up), and A answers calls (C-right). The
-  right stick is the C buttons. If you played an earlier build, your saved
-  controls stay: reset them in the controller settings to get these.
-- Quit: use "Starship > Quit to Homebrew Menu" in the menu to go back to the homebrew menu.
-  Closing the game from the HOME menu also works.
-- 120 FPS: on the Switch 2 screen, set the FPS slider in the graphics
-  settings above 60. With vsync on, the game is held to the display's refresh
-  rate (120 Hz handheld, 60 Hz on most TVs).
-- Bug reports: the log is in `/switch/starship/logs/`. Send it with the report,
-  especially after a crash: the folder then also has a `crash-<date>.txt`
-  file that says where the game crashed.
+To install and play it, see `PLAYER-README.txt` and `GAME-DATA.md`.
 
 ## Build from source
 

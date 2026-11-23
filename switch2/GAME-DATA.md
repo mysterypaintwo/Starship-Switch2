@@ -27,20 +27,21 @@ needed.
    Extraction". The Switch 2 makes `sf64.o2r`. This takes a few minutes.
 3. Starship then asks "Extract another?":
    - **No**: play with the US voices.
-   - **Yes**: copy a JP or EU ROM to `/switch/starship/` first (see below).
+   - **Yes**: only if a JP or EU ROM is already in `/switch/starship/`.
 4. You can delete the ROM from the SD card once `sf64.o2r` is made.
 
 ## Japanese or European voices (optional)
 
-1. Copy your JP or EU ROM to `/switch/starship/`.
-2. In Starship, open the menu (`-`), then Settings > Language > **Install
-   JP/EU Audio**. Starship makes `mods/sf64jp.o2r` or `mods/sf64eu.o2r` and
-   closes.
-3. Start Starship again. It uses the new voices. With the EU voices, pick
-   the language in Settings > Language > Voices.
+English is already in your US game. Japanese needs the JP ROM, and European
+(Lylat Wars) needs the EU ROM.
 
-Install one of the two: once JP or EU voices are installed, the Install
-button is gone.
+1. Copy your JP and/or EU ROM to `/switch/starship/`. You need 64 MB free on
+   the SD card.
+2. In Starship, open the menu (`-`), then Settings > Language > **Install
+   JP/EU Audio**. The screen freezes while it installs. Do not close the game.
+3. Pick the language under **Voices**, then restart Starship.
+
+You can delete the ROMs from the SD card afterward.
 
 ## Made on a computer instead
 

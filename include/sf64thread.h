@@ -190,7 +190,7 @@ extern OSThread gAudioThread; //8013B1F0
 
 #define MQ_GET_MESG(mq, mesg) (osRecvMesg((mq), (OSMesg*) (mesg), OS_MESG_NOBLOCK) != -1)
 #define MQ_WAIT_FOR_MESG(mq, mesg) osRecvMesg((mq), (OSMesg*) (mesg), OS_MESG_BLOCK)
-#define MQ_CLEAR_QUEUE(mq) do {s32 m1 = -1; s32 mesg; do {} while(osRecvMesg((mq), (OSMesg*) &(mesg), OS_MESG_NOBLOCK) != m1);} while(0)
+#define MQ_CLEAR_QUEUE(mq) do {s32 m1 = -1; OSMesg mesg; do {} while(osRecvMesg((mq), (OSMesg*) &(mesg), OS_MESG_NOBLOCK) != m1);} while(0)
 
 #define FAULT_MESG_BREAK 1
 #define FAULT_MESG_FAULT 2

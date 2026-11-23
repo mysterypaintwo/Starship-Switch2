@@ -100,6 +100,7 @@ SPTask* AudioThread_CreateTask() {
     s32 pad3C;
     u32 specId;
     u32 msg;
+    OSMesg wideMesg;
     s32 pad30;
 
     gAudioTaskCountQ++;
@@ -124,7 +125,9 @@ SPTask* AudioThread_CreateTask() {
     AudioLoad_DecreaseSampleDmaTtls();
     AudioLoad_ProcessLoads(gAudioResetStep);
 
-    if (MQ_GET_MESG(gAudioSpecQueue, &specId)) {
+    // OSMesg is 8 bytes on 64-bit platforms: receive into a whole one.
+    if (MQ_GET_MESG(gAudioSpecQueue, &wideMesg)) {
+        specId = wideMesg.data32;
         if (gAudioResetStep == 0) {
             gAudioResetStep = 5;
         }
@@ -158,7 +161,8 @@ SPTask* AudioThread_CreateTask() {
     if (gAiBuffLengths[aiBuffIndex] > gAudioBufferParams.maxAiBufferLength) {
         gAiBuffLengths[aiBuffIndex] = gAudioBufferParams.maxAiBufferLength;
     }
-    while (MQ_GET_MESG(gThreadCmdProcQueue, &msg)) {
+    while (MQ_GET_MESG(gThreadCmdProcQueue, &wideMesg)) {
+        msg = wideMesg.data32;
         AudioThread_ProcessCmds(msg);
     }
     gCurAbiCmdBuffer = AudioSynth_Update(gCurAbiCmdBuffer, &abiCmdCount, aiBuffer, gAiBuffLengths[aiBuffIndex]);

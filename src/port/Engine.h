@@ -44,6 +44,18 @@ class GameEngine {
 	static uint32_t GetInterpolationFrameCount();
     static void ProcessGfxCommands(Gfx* commands);
 
+    static void PrepareShaders();
+    // Installs JP/EU voices between frames, never from inside the menu's draw code.
+    static void RequestVoiceInstall();
+    static void ProcessVoiceInstall();
+    static bool IsVoiceInstallPending();
+    // 0 none, 1 installed, 2 SD card full or unwritable, 3 failed, 5 no ROM.
+    static int TakeVoiceInstallResult();
+    static const char* VoiceInstallLabel();
+    // language: 1 JP, 2 EU.
+    static bool IsVoiceInstalled(int language);
+    // The voice pack loaded this session: 0 English, 1 JP, 2 EU.
+    static int ActiveVoicePack();
     static int ShowYesNoBox(const char* title, const char* box);
     static void ShowMessage(const char* title, const char* message, SDL_MessageBoxFlags type = SDL_MESSAGEBOX_ERROR);
     static bool HasVersion(SF64Version ver);

@@ -884,6 +884,13 @@ namespace UIWidgets {
         return dirty;
     }
 
+#ifdef __SWITCH2__
+    // The + button's thick border is drawn past its edge, so keep it inside the panel.
+    static constexpr float kSliderButtonInset = 8.0f;
+#else
+    static constexpr float kSliderButtonInset = 0.0f;
+#endif
+
     void PushStyleSlider(const ImVec4& color) {
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(color.x, color.y, color.z, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(color.x, color.y, color.z, 1.0f));
@@ -929,7 +936,7 @@ namespace UIWidgets {
                 dirty = true;
             }
             ImGui::SameLine(0, 3.0f);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f + kSliderButtonInset));
         } else {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         }
@@ -1000,7 +1007,7 @@ namespace UIWidgets {
                 dirty = true;
             }
             ImGui::SameLine(0, 3.0f);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f + kSliderButtonInset));
         } else {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         }

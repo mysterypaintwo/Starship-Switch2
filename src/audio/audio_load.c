@@ -1374,11 +1374,11 @@ s32 AudioLoad_ProcessSamplePreloads(s32 resetStatus) {
 
     if (gPreloadSampleStackTop > 0) {
         if (resetStatus != 0) {
-            if (!MQ_GET_MESG(&gPreloadSampleQueue, &preloadIndex)) {}
+            if (!MQ_GET_MESG(&gPreloadSampleQueue, &mesg)) {}
             gPreloadSampleStackTop = 0;
             return false;
         }
-        if (!MQ_GET_MESG(&gPreloadSampleQueue, &preloadIndex)) {
+        if (!MQ_GET_MESG(&gPreloadSampleQueue, &mesg)) {
             return false;
         }
         preloadIndex = mesg.data32;

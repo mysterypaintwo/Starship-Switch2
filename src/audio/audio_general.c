@@ -2776,7 +2776,15 @@ void Audio_InitSounds(void) {
     if (GameEngine_HasVersion(SF64_VER_EU)) {
         AUDIOCMD_GLOBAL_SYNC_LOAD_SEQ_PARTS(NA_BGM_VO_LYLAT, 0);
     }
+#ifdef __SWITCH__
+    // The voice language is chosen before boot, so start with it.
+    Audio_StartSequence(SEQ_PLAYER_VOICE,
+                        (GameEngine_HasVersion(SF64_VER_EU) && CVarGetInteger("gVoiceLanguage", 0) != 0) ? NA_BGM_VO_LYLAT
+                                                                                                         : NA_BGM_VO,
+                        -1, 1);
+#else
     Audio_StartSequence(SEQ_PLAYER_VOICE, NA_BGM_VO, -1, 1);
+#endif
     Audio_StartSequence(SEQ_PLAYER_SFX, NA_BGM_SE, -1, 10);
 }
 
