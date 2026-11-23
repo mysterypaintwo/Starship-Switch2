@@ -19,6 +19,7 @@
 - Audio crackling and playback problems.
 - Holding Y no longer opens a window switcher.
 - Slider + buttons are no longer cut off.
+- Full volume now shows as 100%, and volume settings no longer drop by one after a restart.
 - Missing game files now show a clear message. Press A to return to the Homebrew Menu.
 
 **Updating:** replace the files in `/switch/starship/` and keep your `sf64.o2r`. The first launch takes longer while it prepares shaders.

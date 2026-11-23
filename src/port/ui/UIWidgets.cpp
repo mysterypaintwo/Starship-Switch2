@@ -1,5 +1,7 @@
 #define NOMINMAX  // prevent defining min/max macros on windows
 #include "UIWidgets.h"
+#include <cstdio>
+#include "port/switch/Switch2Debug.h"
 #include <unordered_map>
 #include <cfloat>
 
@@ -885,10 +887,27 @@ namespace UIWidgets {
     }
 
 #ifdef __SWITCH2__
-    // The + button's thick border is drawn past its edge, so keep it inside the panel.
-    static constexpr float kSliderButtonInset = 8.0f;
+    // The + button has a thick border drawn past its edge. Leave room for it, and
+    // if a button still reaches the panel's edge, narrow the sliders to fit.
+    static constexpr float kSliderButtonInset = 24.0f;
+    static float sSliderCorrection = 0.0f;
+
+    static void FitSliderPlusButton() {
+        const float right = ImGui::GetItemRectMax().x + 4.0f;
+        const float limit = ImGui::GetCurrentWindow()->ClipRect.Max.x;
+        if (right > limit && sSliderCorrection < 240.0f) {
+            sSliderCorrection += right - limit;
+            char line[96];
+            snprintf(line, sizeof(line), "B slider overflow right=%.1f clip=%.1f correction=%.1f", right, limit,
+                     sSliderCorrection);
+            Switch2Debug_Log(line);
+        }
+    }
 #else
     static constexpr float kSliderButtonInset = 0.0f;
+    static constexpr float sSliderCorrection = 0.0f;
+    static void FitSliderPlusButton() {
+    }
 #endif
 
     void PushStyleSlider(const ImVec4& color) {
@@ -936,7 +955,7 @@ namespace UIWidgets {
                 dirty = true;
             }
             ImGui::SameLine(0, 3.0f);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f + kSliderButtonInset));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f + kSliderButtonInset + sSliderCorrection));
         } else {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         }
@@ -953,6 +972,7 @@ namespace UIWidgets {
                 Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
                 dirty = true;
             }
+            FitSliderPlusButton();
         }
         PopStyleSlider();
         ImGui::EndDisabled();
@@ -1007,7 +1027,7 @@ namespace UIWidgets {
                 dirty = true;
             }
             ImGui::SameLine(0, 3.0f);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f + kSliderButtonInset));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (ImGui::CalcTextSize("+").x + 20.0f + 3.0f + kSliderButtonInset + sSliderCorrection));
         } else {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         }
@@ -1025,6 +1045,7 @@ namespace UIWidgets {
                 Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
                 dirty = true;
             }
+            FitSliderPlusButton();
         }
         PopStyleSlider();
         ImGui::EndDisabled();

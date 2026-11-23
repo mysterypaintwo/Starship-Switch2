@@ -1,4 +1,5 @@
 #include "ImguiUI.h"
+#include <cmath>
 #include "UIWidgets.h"
 #include "ResolutionEditor.h"
 
@@ -139,6 +140,15 @@ static const char* filters[3] = {
 #endif
         "Linear", "None"
 };
+
+// The game's volume scale is 0 to 99. Rounding keeps a value from dropping on the next boot.
+static float VolumeSliderToGame(float value) {
+#ifdef __SWITCH__
+    return std::round(value * 99.0f);
+#else
+    return value * 100;
+#endif
+}
 
 static const char* voiceLangs[] = {
     "Original", /*"Japanese",*/ "Lylat"
@@ -524,7 +534,7 @@ void DrawSettingsMenu(){
                 .format = "%.0f%%",
                 .isPercentage = true,
             })) {
-                float val = CVarGetFloat("gMainMusicVolume", 1.0f) * 100;
+                float val = VolumeSliderToGame(CVarGetFloat("gMainMusicVolume", 1.0f));
                 gSaveFile.save.data.musicVolume = (u8) val;
                 Audio_SetVolume(AUDIO_TYPE_MUSIC, (u8) val);
             }
@@ -532,7 +542,7 @@ void DrawSettingsMenu(){
                 .format = "%.0f%%",
                 .isPercentage = true,
             })) {
-                float val = CVarGetFloat("gVoiceVolume", 1.0f) * 100;
+                float val = VolumeSliderToGame(CVarGetFloat("gVoiceVolume", 1.0f));
                 gSaveFile.save.data.voiceVolume = (u8) val;
                 Audio_SetVolume(AUDIO_TYPE_VOICE, (u8) val);
             }
@@ -540,7 +550,7 @@ void DrawSettingsMenu(){
                 .format = "%.0f%%",
                 .isPercentage = true,
             })) {
-                float val = CVarGetFloat("gSFXMusicVolume", 1.0f) * 100;
+                float val = VolumeSliderToGame(CVarGetFloat("gSFXMusicVolume", 1.0f));
                 gSaveFile.save.data.sfxVolume = (u8) val;
                 Audio_SetVolume(AUDIO_TYPE_SFX, (u8) val);
             }

@@ -431,9 +431,16 @@ void Game_Update(void) {
 #ifdef MODS_BOOT_STATE
                 gNextGameState = MODS_BOOT_STATE;
 #endif
+#ifdef __SWITCH__
+                // The game's volume scale ends at 99, so 99 is shown as 100% in the menu.
+                CVarSetFloat("gMainMusicVolume", gSaveFile.save.data.musicVolume / 99.0f);
+                CVarSetFloat("gVoiceVolume", gSaveFile.save.data.voiceVolume / 99.0f);
+                CVarSetFloat("gSFXMusicVolume", gSaveFile.save.data.sfxVolume / 99.0f);
+#else
                 CVarSetFloat("gMainMusicVolume", gSaveFile.save.data.musicVolume / 100.0f);
                 CVarSetFloat("gVoiceVolume", gSaveFile.save.data.voiceVolume / 100.0f);
                 CVarSetFloat("gSFXMusicVolume", gSaveFile.save.data.sfxVolume / 100.0f);
+#endif
                 for (i = 0; i < 4; i++) {
                     gBoostButton[i] = L_CBUTTONS;
                     gBrakeButton[i] = D_CBUTTONS;
